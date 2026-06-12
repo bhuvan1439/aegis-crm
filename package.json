@@ -1,0 +1,11 @@
+{
+  "name": "crm-system",
+  "version": "1.0.0",
+  "description": "Mini CRM system combining Express backend and React frontend",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "start:backend": "npm start --prefix backend",
+    "start:frontend": "npm run dev --prefix frontend",
+    "dev": "npx -y concurrently \"npm run start:backend\" \"npm run start:frontend\""
+  }
+}
