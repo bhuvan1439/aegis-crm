@@ -26,6 +26,22 @@ import {
 
 const API_BASE = 'http://localhost:5000/api';
 
+// Detect if running on GitHub Pages static sandbox
+const IS_GITHUB_PAGES = window.location.hostname.includes('github.io') || window.location.hash.includes('static');
+
+// Initial seed data for LocalStorage fallback mode
+const initialLeads = [
+  { id: 1, name: 'Sarah Connor', email: 's.connor@cyberdyne.com', phone: '555-0199', company: 'Cyberdyne Systems', source: 'Website Contact Form', status: 'new', created_at: new Date(Date.now() - 3600000 * 2).toISOString(), updated_at: new Date(Date.now() - 3600000 * 2).toISOString() },
+  { id: 2, name: 'John Doe', email: 'john.doe@example.com', phone: '555-1234', company: 'Acme Corp', source: 'LinkedIn Referral', status: 'contacted', created_at: new Date(Date.now() - 3600000 * 5).toISOString(), updated_at: new Date(Date.now() - 3600000 * 5).toISOString() },
+  { id: 3, name: 'Bruce Wayne', email: 'bwayne@wayneenterprises.com', phone: '555-1939', company: 'Wayne Enterprises', source: 'Partner Network', status: 'converted', created_at: new Date(Date.now() - 3600000 * 24).toISOString(), updated_at: new Date(Date.now() - 3600000 * 24).toISOString() },
+  { id: 4, name: 'Alice Smith', email: 'alice@techstart.io', phone: '555-9876', company: 'TechStart Inc', source: 'Website Contact Form', status: 'new', created_at: new Date(Date.now() - 3600000 * 12).toISOString(), updated_at: new Date(Date.now() - 3600000 * 12).toISOString() }
+];
+
+const initialNotes = [
+  { id: 1, lead_id: 2, content: 'Lead created and marked as contacted. Initial contact initiated.', created_at: new Date(Date.now() - 3600000 * 4).toISOString() },
+  { id: 2, lead_id: 3, content: 'Lead created and marked as converted. Partner onboarding checklist completed.', created_at: new Date(Date.now() - 3600000 * 23).toISOString() }
+];
+
 function App() {
   const [page, setPage] = useState('contact'); // 'contact' | 'login' | 'dashboard'
   const [token, setToken] = useState(localStorage.getItem('crm_token') || null);
@@ -78,6 +94,19 @@ function App() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [addingAdminLead, setAddingAdminLead] = useState(false);
 
+  // Initialize LocalStorage Database if on GitHub Pages / Static Mode
+  useEffect(() => {
+    if (IS_GITHUB_PAGES) {
+      if (!localStorage.getItem('crm_local_leads')) {
+        localStorage.setItem('crm_local_leads', JSON.stringify(initialLeads));
+      }
+      if (!localStorage.getItem('crm_local_notes')) {
+        localStorage.setItem('crm_local_notes', JSON.stringify(initialNotes));
+      }
+      console.log("Aegis CRM running in LocalStorage fallback mode (GitHub Pages).");
+    }
+  }, []);
+
   // Auto-clear toast
   useEffect(() => {
     if (toast) {
@@ -93,7 +122,6 @@ function App() {
     }
   }, [token, page, statusFilter, sourceFilter, sortOrder]);
 
-  // Handle Search Submit
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     fetchLeads();
@@ -107,6 +135,28 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoggingIn(true);
+    
+    if (IS_GITHUB_PAGES) {
+      // Simulate login delay
+      setTimeout(() => {
+        if (loginForm.username === 'admin' && loginForm.password === 'admin123') {
+          const mockUser = { username: 'admin', role: 'admin' };
+          const mockToken = 'mock_jwt_token_for_static_hosting';
+          localStorage.setItem('crm_token', mockToken);
+          localStorage.setItem('crm_user', JSON.stringify(mockUser));
+          setToken(mockToken);
+          setUser(mockUser);
+          showToast(`Welcome back, admin! (Static Demo Mode)`);
+          setPage('dashboard');
+          setLoginForm({ username: '', password: '' });
+        } else {
+          showToast('Invalid username or password.', 'error');
+        }
+        setLoggingIn(false);
+      }, 500);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
@@ -148,6 +198,71 @@ function App() {
   // Lead Operations
   const fetchLeads = async () => {
     setLoadingLeads(true);
+
+    if (IS_GITHUB_PAGES) {
+      setTimeout(() => {
+        try {
+          let localLeads = JSON.parse(localStorage.getItem('crm_local_leads')) || [];
+          
+          // Apply Filters
+          if (statusFilter) {
+            localLeads = localLeads.filter(l => l.status === statusFilter);
+          }
+          if (sourceFilter) {
+            localLeads = localLeads.filter(l => l.source === sourceFilter);
+          }
+          if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            localLeads = localLeads.filter(l => 
+              l.name.toLowerCase().includes(term) || 
+              l.email.toLowerCase().includes(term) || 
+              (l.company && l.company.toLowerCase().includes(term))
+            );
+          }
+
+          // Apply Sorting
+          if (sortOrder === 'oldest') {
+            localLeads.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+          } else if (sortOrder === 'name_asc') {
+            localLeads.sort((a, b) => a.name.localeCompare(b.name));
+          } else if (sortOrder === 'name_desc') {
+            localLeads.sort((a, b) => b.name.localeCompare(a.name));
+          } else {
+            // Newest first
+            localLeads.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          }
+
+          setLeads(localLeads);
+          
+          if (localLeads.length > 0) {
+            if (!selectedLead) {
+              setSelectedLead(localLeads[0]);
+              // Fetch notes for selected lead
+              const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+              setNotes(allNotes.filter(n => n.lead_id === localLeads[0].id).reverse());
+            } else {
+              const updatedSelected = localLeads.find(l => l.id === selectedLead.id);
+              if (updatedSelected) {
+                setSelectedLead(updatedSelected);
+              } else {
+                setSelectedLead(localLeads[0]);
+                const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+                setNotes(allNotes.filter(n => n.lead_id === localLeads[0].id).reverse());
+              }
+            }
+          } else {
+            setSelectedLead(null);
+            setNotes([]);
+          }
+        } catch (e) {
+          showToast('Failed to retrieve mock database leads.', 'error');
+        } finally {
+          setLoadingLeads(false);
+        }
+      }, 300);
+      return;
+    }
+
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
@@ -169,7 +284,6 @@ function App() {
       
       setLeads(data);
       
-      // Auto-select lead logic
       if (data.length > 0) {
         if (!selectedLead) {
           selectLead(data[0]);
@@ -199,6 +313,19 @@ function App() {
 
   const fetchNotes = async (leadId) => {
     setLoadingNotes(true);
+
+    if (IS_GITHUB_PAGES) {
+      setTimeout(() => {
+        const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+        const leadNotes = allNotes.filter(n => n.lead_id === leadId);
+        // Sort descending by date (newest note first)
+        leadNotes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        setNotes(leadNotes);
+        setLoadingNotes(false);
+      }, 100);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/leads/${leadId}/notes`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -214,6 +341,33 @@ function App() {
   };
 
   const handleStatusChange = async (leadId, newStatus) => {
+    if (IS_GITHUB_PAGES) {
+      const allLeads = JSON.parse(localStorage.getItem('crm_local_leads')) || [];
+      const index = allLeads.findIndex(l => l.id === leadId);
+      if (index === -1) return;
+
+      const oldStatus = allLeads[index].status;
+      allLeads[index].status = newStatus;
+      allLeads[index].updated_at = new Date().toISOString();
+      localStorage.setItem('crm_local_leads', JSON.stringify(allLeads));
+
+      // Append status change note
+      const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+      const newNote = {
+        id: Date.now(),
+        lead_id: leadId,
+        content: `Status updated from "${oldStatus}" to "${newStatus}" by admin.`,
+        created_at: new Date().toISOString()
+      };
+      allNotes.push(newNote);
+      localStorage.setItem('crm_local_notes', JSON.stringify(allNotes));
+
+      showToast(`Status updated to ${newStatus}`);
+      fetchLeads();
+      fetchNotes(leadId);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/leads/${leadId}`, {
         method: 'PATCH',
@@ -236,6 +390,23 @@ function App() {
   const handleAddNote = async (e) => {
     e.preventDefault();
     if (!newNoteContent.trim() || !selectedLead) return;
+
+    if (IS_GITHUB_PAGES) {
+      const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+      const newNote = {
+        id: Date.now(),
+        lead_id: selectedLead.id,
+        content: newNoteContent.trim(),
+        created_at: new Date().toISOString()
+      };
+      allNotes.push(newNote);
+      localStorage.setItem('crm_local_notes', JSON.stringify(allNotes));
+
+      setNewNoteContent('');
+      showToast('Note added successfully');
+      fetchNotes(selectedLead.id);
+      return;
+    }
 
     try {
       const res = await fetch(`${API_BASE}/leads/${selectedLead.id}/notes`, {
@@ -261,6 +432,22 @@ function App() {
   const handleDeleteLead = async (leadId) => {
     if (!window.confirm('Are you sure you want to permanently delete this lead? All note logs will be lost.')) return;
     
+    if (IS_GITHUB_PAGES) {
+      const allLeads = JSON.parse(localStorage.getItem('crm_local_leads')) || [];
+      const filteredLeads = allLeads.filter(l => l.id !== leadId);
+      localStorage.setItem('crm_local_leads', JSON.stringify(filteredLeads));
+
+      // Cascade delete notes
+      const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+      const filteredNotes = allNotes.filter(n => n.lead_id !== leadId);
+      localStorage.setItem('crm_local_notes', JSON.stringify(filteredNotes));
+
+      showToast('Lead deleted successfully.');
+      setSelectedLead(null);
+      fetchLeads();
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/leads/${leadId}`, {
         method: 'DELETE',
@@ -278,10 +465,61 @@ function App() {
     }
   };
 
-  // Public contact form submission
+  // Public Contact Form Submit
   const handleContactSubmit = async (e) => {
     e.preventDefault();
     setSubmittingLead(true);
+
+    if (IS_GITHUB_PAGES) {
+      setTimeout(() => {
+        const allLeads = JSON.parse(localStorage.getItem('crm_local_leads')) || [];
+        const newId = allLeads.length > 0 ? Math.max(...allLeads.map(l => l.id)) + 1 : 1;
+        const newLead = {
+          id: newId,
+          name: contactForm.name,
+          email: contactForm.email,
+          phone: contactForm.phone || null,
+          company: contactForm.company || null,
+          source: contactForm.source || 'Website Contact Form',
+          status: 'new',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        allLeads.push(newLead);
+        localStorage.setItem('crm_local_leads', JSON.stringify(allLeads));
+
+        // Create log notes
+        const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+        allNotes.push({
+          id: Date.now(),
+          lead_id: newId,
+          content: `Lead submitted via contact form (Source: ${newLead.source}).`,
+          created_at: new Date().toISOString()
+        });
+        
+        // Auto responder log
+        allNotes.push({
+          id: Date.now() + 1,
+          lead_id: newId,
+          content: `[Auto-Responder] Email dispatched to ${newLead.email}: "Hello ${newLead.name}, thank you for contacting us. We have received your message and will follow up shortly."`,
+          created_at: new Date().toISOString()
+        });
+
+        localStorage.setItem('crm_local_notes', JSON.stringify(allNotes));
+
+        showToast('Contact form submitted successfully! Admin notified.');
+        setContactForm({
+          name: '',
+          email: '',
+          phone: '',
+          company: '',
+          source: 'Website Contact Form'
+        });
+        setSubmittingLead(false);
+      }, 500);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/leads`, {
         method: 'POST',
@@ -306,10 +544,55 @@ function App() {
     }
   };
 
-  // Admin manual lead submission
+  // Admin Manual Lead Submit
   const handleAdminAddLeadSubmit = async (e) => {
     e.preventDefault();
     setAddingAdminLead(true);
+
+    if (IS_GITHUB_PAGES) {
+      setTimeout(() => {
+        const allLeads = JSON.parse(localStorage.getItem('crm_local_leads')) || [];
+        const newId = allLeads.length > 0 ? Math.max(...allLeads.map(l => l.id)) + 1 : 1;
+        const newLead = {
+          id: newId,
+          name: adminAddLeadForm.name,
+          email: adminAddLeadForm.email,
+          phone: adminAddLeadForm.phone || null,
+          company: adminAddLeadForm.company || null,
+          source: adminAddLeadForm.source || 'Manual Insertion',
+          status: adminAddLeadForm.status || 'new',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        allLeads.push(newLead);
+        localStorage.setItem('crm_local_leads', JSON.stringify(allLeads));
+
+        // Create initial log notes
+        const allNotes = JSON.parse(localStorage.getItem('crm_local_notes')) || [];
+        allNotes.push({
+          id: Date.now(),
+          lead_id: newId,
+          content: `Lead created manually by Administrator. (Status initialized as: ${newLead.status})`,
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('crm_local_notes', JSON.stringify(allNotes));
+
+        showToast('Lead added successfully!');
+        setShowAddLeadModal(false);
+        setAdminAddLeadForm({
+          name: '',
+          email: '',
+          phone: '',
+          company: '',
+          source: 'Manual Insertion',
+          status: 'new'
+        });
+        setAddingAdminLead(false);
+        fetchLeads();
+      }, 400);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/leads`, {
         method: 'POST',
@@ -369,7 +652,7 @@ function App() {
     showToast('Leads exported as CSV file.');
   };
 
-  // Metrics calculation
+  // Metrics
   const totalLeadsCount = leads.length;
   const newLeadsCount = leads.filter(l => l.status === 'new').length;
   const contactedLeadsCount = leads.filter(l => l.status === 'contacted').length;
@@ -378,12 +661,10 @@ function App() {
     ? Math.round((convertedLeadsCount / totalLeadsCount) * 100) 
     : 0;
 
-  // Percentage for charts
   const newPercent = totalLeadsCount > 0 ? (newLeadsCount / totalLeadsCount) * 100 : 0;
   const contactedPercent = totalLeadsCount > 0 ? (contactedLeadsCount / totalLeadsCount) * 100 : 0;
   const convertedPercent = totalLeadsCount > 0 ? (convertedLeadsCount / totalLeadsCount) * 100 : 0;
 
-  // Helper date formatter
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -546,6 +827,11 @@ function App() {
           <div className="login-card glass">
             <h1 className="login-title">Aegis Login</h1>
             <p className="login-subtitle">Provide your credentials to access the client lead CRM dashboard.</p>
+            {IS_GITHUB_PAGES && (
+              <div style={{ background: 'rgba(99, 102, 241, 0.12)', border: '1px solid rgba(99, 102, 241, 0.3)', padding: '0.75rem', borderRadius: '8px', fontSize: '0.8rem', color: '#c084fc', marginBottom: '1.25rem', textAlign: 'left' }}>
+                🚀 <strong>Running on GitHub Pages (Static Demo Mode)</strong>. Database functions run inside your browser's localStorage. You can save/update leads live!
+              </div>
+            )}
             <form onSubmit={handleLogin}>
               <div className="form-group">
                 <label className="form-label" htmlFor="username">Username</label>
@@ -642,7 +928,7 @@ function App() {
               </div>
             </div>
 
-            {/* Simple CSS Visual Breakdown Analytics Chart */}
+            {/* Visual Status Distributions */}
             <div className="glass" style={{ padding: '1.25rem 1.5rem', marginBottom: '2rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>
@@ -673,10 +959,10 @@ function App() {
               </div>
             </div>
 
-            {/* Dashboard Control & Table Grid */}
+            {/* Control & Table Grid */}
             <div className="dashboard-grid">
               
-              {/* Leads Listing Column */}
+              {/* Table Column */}
               <div className="glass" style={{ padding: '1.5rem' }}>
                 <div className="control-bar" style={{ marginBottom: '1.5rem' }}>
                   <form onSubmit={handleSearchSubmit} className="search-container">
@@ -709,7 +995,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Filter and Sort controls */}
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     <Filter size={14} /> Filter:
@@ -808,7 +1093,7 @@ function App() {
                 )}
               </div>
 
-              {/* Lead Details & Notes Column */}
+              {/* Detail Pane Column */}
               <div>
                 {selectedLead ? (
                   <div className="detail-pane glass">
@@ -917,7 +1202,7 @@ function App() {
 
       </main>
 
-      {/* ADMIN MANUAL ADD LEAD MODAL */}
+      {/* Manual Insert Modal */}
       {showAddLeadModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem' }}>
           <div className="glass" style={{ maxWidth: '500px', width: '100%', padding: '2rem', position: 'relative' }}>
