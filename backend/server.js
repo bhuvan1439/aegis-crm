@@ -48,6 +48,12 @@ app.post('/api/leads', async (req, res) => {
       [result.lastID, `Lead submitted via contact form (Source: ${leadSource}).`]
     );
 
+    // Dispatch simulated auto-responder email
+    await dbRun(
+      'INSERT INTO notes (lead_id, content) VALUES (?, ?)',
+      [result.lastID, `[Auto-Responder] Email dispatched to ${email}: "Hello ${name}, thank you for contacting us. We have received your message and will follow up shortly."`]
+    );
+
     res.status(201).json(newLead);
   } catch (err) {
     console.error('Error creating lead:', err.message);
